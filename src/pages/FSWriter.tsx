@@ -489,6 +489,7 @@ const FSWriter = () => {
                             markdown={fsMarkdown}
                             status={status}
                             scopeLabel="Functional Specification"
+                            title="Functional Specification"
                         />
                     </ResizablePanel>
                 </ResizablePanelGroup>

@@ -9,9 +9,10 @@ interface TSPreviewProps {
   markdown: string;
   status: GenerationStatus;
   scopeLabel?: string | null;
+  title?: string;
 }
 
-export function TSPreview({ markdown, status, scopeLabel }: TSPreviewProps) {
+export function TSPreview({ markdown, status, scopeLabel, title = "Technical Specification" }: TSPreviewProps) {
   if (status === "idle" && !markdown) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center px-8">
@@ -19,25 +20,25 @@ export function TSPreview({ markdown, status, scopeLabel }: TSPreviewProps) {
           <FileText className="h-10 w-10 text-primary/60" />
         </div>
         <h3 className="text-base font-semibold mb-2">
-          Technical Specification Preview
+          {title} Preview
         </h3>
         <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
-          Upload your <span className="text-primary font-medium">TS Template</span> and{" "}
-          <span className="text-primary font-medium">ABAP source files</span>,
-          then click "Generate TS" to create your specification.
+          Upload your <span className="text-primary font-medium">Template</span> and{" "}
+          <span className="text-primary font-medium">Requiremnets</span>,
+          then click "Generate" to create your specification.
         </p>
         <div className="mt-6 flex flex-col gap-2 text-xs text-muted-foreground/70">
           <div className="flex items-center gap-2">
             <span className="w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">1</span>
-            Upload a TS template (.docx, .md, .pdf)
+            Provide input (Upload or Type)
           </div>
           <div className="flex items-center gap-2">
             <span className="w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">2</span>
-            Upload ABAP/ABP source files
+            Configure parameters
           </div>
           <div className="flex items-center gap-2">
             <span className="w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">3</span>
-            Click "Generate TS" — AI fills in the template
+            Click "Generate" — AI creates the document
           </div>
         </div>
       </div>
@@ -56,13 +57,13 @@ export function TSPreview({ markdown, status, scopeLabel }: TSPreviewProps) {
         <div className="text-center">
           <p className="text-sm font-medium">
             {status === "analyzing"
-              ? "Analyzing ABAP code…"
-              : "Generating Technical Specification…"}
+              ? "Analyzing input…"
+              : `Generating ${title}…`}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
             {scopeLabel
               ? `Scope: ${scopeLabel}`
-              : "This may take a moment for complex code"}
+              : "This may take a moment for complex requests"}
           </p>
         </div>
       </div>
@@ -78,7 +79,7 @@ export function TSPreview({ markdown, status, scopeLabel }: TSPreviewProps) {
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Technical Specification</title>
+        <title>${title}</title>
         <style>
           body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; color: #1a1a1a; line-height: 1.6; }
           h1 { font-size: 24px; border-bottom: 2px solid #2563eb; padding-bottom: 8px; margin-top: 32px; }
@@ -107,9 +108,14 @@ export function TSPreview({ markdown, status, scopeLabel }: TSPreviewProps) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "technical-specification.md";
+    a.download = `${title.replace(/\s+/g, "_")}.md`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleExportDocx = () => {
+    const filename = `${title.replace(/\s+/g, "_")}.docx`;
+    exportToDocx(markdown, filename);
   };
 
   return (
@@ -118,7 +124,7 @@ export function TSPreview({ markdown, status, scopeLabel }: TSPreviewProps) {
       <div className="flex items-center justify-between px-4 py-2 border-b bg-card/50">
         <div className="flex items-center gap-2">
           <FileText className="h-4 w-4 text-primary" />
-          <span className="text-xs font-semibold">Technical Specification</span>
+          <span className="text-xs font-semibold">{title}</span>
           {scopeLabel && (
             <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full">
               {scopeLabel}
@@ -137,7 +143,7 @@ export function TSPreview({ markdown, status, scopeLabel }: TSPreviewProps) {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => exportToDocx(markdown, "Technical_Specification.docx")}
+            onClick={handleExportDocx}
           >
             <Download className="h-4 w-4 mr-2" />
             Export .docx

@@ -218,6 +218,7 @@ const Workspace = () => {
                       markdown={store.tsMarkdown}
                       status={store.status}
                       scopeLabel={store.analysisScope}
+                      title="Technical Specification"
                     />
                   </ResizablePanel>
                 </ResizablePanelGroup>
