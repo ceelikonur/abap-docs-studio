@@ -1,73 +1,43 @@
-# Welcome to your Lovable project
+# ABAP DocuGen - AI Technical Specification Generator
 
-## Project info
+An intelligent tool that analyzes SAP ABAP source code (including Function Groups, Reports, and Classes) and generates comprehensive Technical Specification documents based on your custom templates.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Key Features
 
-## How can I edit this code?
+- **Custom Project Metadata**: Set dynamic values for Document Title, ID, Author, etc. to automatically fill template placeholders.
+- **SE80 Object Navigator**: Visualizes uploaded ABAP files in a hierarchical tree structure (Function Groups, Programs, Includes, etc.) just like SAP GUI.
+- **Template Support**: Upload your own Technical Specification template (.docx, .md, .pdf) and the AI will fill it out perfectly, respecting your layout.
+- **Smart Parsing**: Automatically converts DOCX templates to Markdown for AI processing and previews.
+- **DOCX & Markdown Export**: Download your finalized Technical Specification as a `.docx` document or `.md` file.
+- **Scoped Analysis**: Analyze the entire project or select specific objects (e.g., a single Function Group) for focused documentation.
 
-There are several ways of editing your application.
+## How to Use
 
-**Use Lovable**
+1. **Upload Template**: Drag & drop your Technical Specification template (e.g., `EWM_032 Box Label TS.docx`).
+2. **Set Project Data**: Click "Project Data" to enter your Object ID, Title, and Author name.
+3. **Upload Code**: Upload your ABAP source files. The system auto-organizes them.
+4. **Generate**: Click "Generate TS". The AI analyzes your code and populates your template.
+5. **Export**: Click "Export .docx" to download the final document.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## Tech Stack
 
-Changes made via Lovable will be committed automatically to this repo.
+- **Frontend**: React, TypeScript, Vite, Tailwind CSS
+- **UI Components**: shadcn/ui, Radix UI
+- **AI Integration**: Google Gemini / OpenAI / Anthropic
+- **File Parsing & Generation**: 
+  - `mammoth.js` for DOCX import
+  - `docx` library for DOCX export
+  - Custom regex-based ABAP parser
 
-**Use your preferred IDE**
+## Development
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+```bash
+# Install dependencies
+npm install
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Run development server
 npm run dev
+
+# Build for production
+npm run build
 ```
-
-**Edit a file directly in GitHub**
-
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)

@@ -1,5 +1,5 @@
-import { useCallback, useState } from "react";
-import { Upload, FileCode, FileText, X } from "lucide-react";
+import { useCallback, useState, useRef } from "react";
+import { Upload, FileCode, FileText, X, Archive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { UploadedFile, FileCategory } from "@/lib/types";
@@ -14,6 +14,7 @@ interface FileUploadZoneProps {
 
 export function FileUploadZone({ files, onFilesAdded, onRemoveFile, onUpdateCategory }: FileUploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -34,6 +35,10 @@ export function FileUploadZone({ files, onFilesAdded, onRemoveFile, onUpdateCate
     [onFilesAdded]
   );
 
+  const handleZoneClick = () => {
+    fileInputRef.current?.click();
+  };
+
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -41,7 +46,16 @@ export function FileUploadZone({ files, onFilesAdded, onRemoveFile, onUpdateCate
   };
 
   const getFileIcon = (name: string) => {
-    if (/\.abap$/i.test(name)) return <FileCode className="h-4 w-4 text-primary" />;
+    if (/\.zip$/i.test(name)) {
+      return <Archive className="h-4 w-4 text-orange-500" />;
+    }
+    if (/\.(xml)$/i.test(name)) {
+      return <FileCode className="h-4 w-4 text-yellow-500" />;
+    }
+    // Treat any ABAP-like file as code (including files without standard extensions)
+    if (/\.(abap|abp|txt)$/i.test(name) || isAbapFileName(name)) {
+      return <FileCode className="h-4 w-4 text-primary" />;
+    }
     return <FileText className="h-4 w-4 text-muted-foreground" />;
   };
 
@@ -52,27 +66,26 @@ export function FileUploadZone({ files, onFilesAdded, onRemoveFile, onUpdateCate
         onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
-        className={`relative rounded-lg border-2 border-dashed p-8 text-center transition-all cursor-pointer ${
-          isDragging
-            ? "border-primary bg-primary/5 shadow-sap"
-            : "border-border hover:border-primary/50 hover:bg-muted/30"
-        }`}
-        onClick={() => document.getElementById("file-input")?.click()}
+        className={`relative rounded-lg border-2 border-dashed p-8 text-center transition-all cursor-pointer ${isDragging
+          ? "border-primary bg-primary/5 shadow-sap"
+          : "border-border hover:border-primary/50 hover:bg-muted/30"
+          }`}
+        onClick={handleZoneClick}
       >
         <input
-          id="file-input"
+          ref={fileInputRef}
           type="file"
           multiple
-          accept=".abap,.txt,.docx,.md,.pdf"
           onChange={handleFileInput}
           className="hidden"
+          accept=".abap,.abp,.txt,.md,.docx,.doc,.pdf,.zip,.xml"
         />
         <Upload className={`mx-auto h-10 w-10 mb-3 ${isDragging ? "text-primary" : "text-muted-foreground"}`} />
         <p className="text-sm font-medium">
-          Drop <span className="text-primary">.abap</span> files & templates here
+          Drop your <span className="text-primary">abapGit ZIP</span>, source files & templates here
         </p>
         <p className="text-xs text-muted-foreground mt-1">
-          Supports .abap, .docx, .md, .pdf — or click to browse
+          Supports <strong>.zip</strong> (abapGit export), .abap, .xml, .docx, .md files
         </p>
       </div>
 
@@ -117,5 +130,19 @@ export function FileUploadZone({ files, onFilesAdded, onRemoveFile, onUpdateCate
         </div>
       )}
     </div>
+  );
+}
+
+/** Check if a filename matches ABAP naming patterns (even without extension) */
+function isAbapFileName(name: string): boolean {
+  const base = name.replace(/\.[^.]+$/, "").toUpperCase();
+  return (
+    /^SAPL/.test(base) ||
+    /^L.+(TOP|UXX|FXX|U\d{2,3}|F\d{2,3}|I\d{2,3}|O\d{2,3})$/.test(base) ||
+    /^SAPM/.test(base) ||
+    /^[ZY]/.test(base) ||
+    /^[ZY]CL_/.test(base) ||
+    /^[ZY]IF_/.test(base) ||
+    /_(TOP|PBO|PAI|F\d{2,3}|I\d{2,3}|O\d{2,3})$/.test(base)
   );
 }

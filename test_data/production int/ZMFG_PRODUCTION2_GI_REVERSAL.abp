@@ -1,0 +1,336 @@
+REPORT zmfg_production_gi_reversal .
+
+CONSTANTS:
+  gc_mfg_rcv_wc_type  TYPE /scwm/de_workst_trtyp  VALUE '1'.
+
+PARAMETERS p_lgnum TYPE /scwm/s_rf_mfg_rcv_wc-lgnum DEFAULT '4210'.
+PARAMETERS p_tanum TYPE /scwm/ordim_c-tanum OBLIGATORY.
+*PARAMETERS p_work  TYPE /scwm/s_rf_mfg_rcv_wc-workstation DEFAULT 'YPW1'.
+PARAMETERS p_prord TYPE /scwm/de_rf_prod_order.
+
+*PARAMETERS p_mat   TYPE mara-matnr DEFAULT '9'.
+*PARAMETERS p_huid  TYPE /scwm/s_rf_mfg_rcv_rvs_hu_sel-rfhu..
+*PARAMETERS p_matnr TYPE /scwm/de_matnr.
+*PARAMETERS p_serid TYPE /scwm/de_serid.
+*PARAMETERS p_charg TYPE /scwm/de_charg.
+*PARAMETERS p_qty   TYPE /scwm/s_rf_mfg_con_chg_data-consumed_qty .
+*PARAMETERS p_uom   TYPE /scwm/s_rf_mfg_con_chg_data-consumed_uom .
+
+TYPES BEGIN OF t_item.
+TYPES huid       TYPE /scwm/s_rf_mfg_rcv_rvs_hu_sel-rfhu.
+TYPES matnr      TYPE /scwm/de_matnr.
+TYPES serid      TYPE /scwm/de_serid.
+TYPES charg      TYPE /scwm/de_charg.
+TYPES qty        TYPE /scwm/s_rf_mfg_con_chg_data-consumed_qty .
+TYPES uom        TYPE /scwm/s_rf_mfg_con_chg_data-consumed_uom .
+TYPES guid_stock TYPE /scwm/ordim_c-guid_stock.
+TYPES END OF t_item.
+
+START-OF-SELECTION.
+  BREAK-POINT.
+
+  PERFORM process_gi_for_prod_reversal.
+
+FORM process_gi_for_prod_reversal.
+  DATA ls_item TYPE t_item.
+  PERFORM get_tanum_det
+     USING p_lgnum p_tanum
+  CHANGING ls_item .
+  PERFORM gi_for_prod_reversal USING ls_item.
+ENDFORM.
+
+FORM get_tanum_det
+     USING iv_lgnum iv_tanum
+   CHANGING cs_item TYPE t_item .
+
+  DATA lt_ordimc  TYPE TABLE OF /scwm/ordim_c.
+  DATA lt_ordimcs TYPE TABLE OF /scwm/ordim_cs.
+
+  DATA ls_ordimc  TYPE /scwm/ordim_c.
+  DATA ls_ordimcs TYPE /scwm/ordim_cs.
+
+  DATA lo_stockf TYPE REF TO /scwm/cl_ui_stock_fields.
+
+  IF lo_stockf IS INITIAL.
+    CREATE OBJECT lo_stockf.
+  ENDIF.
+
+  SELECT * FROM /scwm/ordim_c INTO TABLE lt_ordimc
+    WHERE lgnum = iv_lgnum
+      AND tanum = iv_tanum.
+
+  SELECT * FROM /scwm/ordim_cs INTO TABLE lt_ordimcs
+    WHERE lgnum = iv_lgnum
+      AND tanum = iv_tanum.
+
+  LOOP AT lt_ordimc INTO ls_ordimc .
+    cs_item-huid         = ls_ordimc-vlenr         .
+
+    CALL FUNCTION 'CONVERSION_EXIT_MDLPD_OUTPUT'
+      EXPORTING
+        input  = ls_ordimc-matid
+      IMPORTING
+        output = cs_item-matnr.
+
+    cs_item-charg =  lo_stockf->get_batchno_by_id(
+      iv_batchid = ls_ordimc-batchid
+    ).
+*    cs_item-charg        = ls_ordimc-charg         .
+
+    cs_item-qty          = ls_ordimc-nistm         .
+    cs_item-uom          = ls_ordimc-meins         .
+    cs_item-guid_stock   = ls_ordimc-guid_stock    .
+  ENDLOOP.
+
+  LOOP AT lt_ordimcs INTO ls_ordimcs .
+    cs_item-serid = ls_ordimcs-serid.
+  ENDLOOP.
+
+ENDFORM.
+
+FORM gi_for_prod_reversal USING is_item TYPE t_item.
+  DATA ls_mfg_con_rvs_chg_data  TYPE /scwm/s_rf_mfg_con_rvs_chg_dat.
+  DATA ls_mfg_con_rvs_static_data  TYPE /scwm/s_rf_mfg_con_rvs_sta_dat.
+  DATA ls_mfg_con_rvs_screen_data  TYPE /scwm/s_rf_mfg_con_rvs_scr_dat.
+  DATA ls_ean128 TYPE /scwm/ean128.
+
+  DATA: ls_headers        TYPE /scwm/dlv_header_out_prd_str,
+        lo_rf_mfg_con_rvs TYPE REF TO zewm_cl_rf_mfg_con_rvs,
+        lx_mfg_con_error  TYPE REF TO /scwm/cx_rf_mfg_con.
+
+  lo_rf_mfg_con_rvs = zewm_cl_rf_mfg_con_rvs=>get_instance( ).
+  ls_mfg_con_rvs_static_data-lgnum = p_lgnum.
+
+  TRY.
+      ls_mfg_con_rvs_static_data-mo_docno = p_prord.
+
+      lo_rf_mfg_con_rvs->check_mo(
+          EXPORTING
+            iv_prod_order               = ls_mfg_con_rvs_static_data-mo_docno
+          CHANGING
+            cs_mfg_con_rvs_static_data  = ls_mfg_con_rvs_static_data
+      ).
+
+      lo_rf_mfg_con_rvs->read_pmr(
+        EXPORTING
+          iv_lgnum   = ls_mfg_con_rvs_static_data-lgnum
+          iv_docid   = ls_mfg_con_rvs_static_data-pwr_docid
+        IMPORTING
+          es_headers = ls_headers
+             ).
+
+      " In case outcome of production order is not a product itself
+      " use production info instead
+      IF ls_headers-sapext-/scwm/itemid_main_product IS NOT INITIAL.
+        ls_mfg_con_rvs_static_data-main_product          = ls_headers-main_item-product-productno.
+        ls_mfg_con_rvs_static_data-main_product_descr    = ls_headers-main_item-product-product_text.
+      ELSE.
+        ls_mfg_con_rvs_static_data-main_product_descr    = ls_headers-sapext-/scwm/production_info.
+        CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+          EXPORTING
+            input  = ls_mfg_con_rvs_static_data-main_product_descr
+          IMPORTING
+            output = ls_mfg_con_rvs_static_data-main_product_descr.
+      ENDIF.
+
+      ls_mfg_con_rvs_chg_data-huident = is_item-huid.
+
+      DATA lv_matid TYPE mara-scm_matid_guid16.
+      SELECT SINGLE scm_matid_guid16 FROM mara INTO lv_matid
+        WHERE matnr = is_item-matnr.
+
+      ls_mfg_con_rvs_chg_data-mat_global-matid = lv_matid.
+
+      " Regardless from the source of the HU, it needs to be
+      " validated as even a scanned bar code could contain
+      " invalid information.
+      lo_rf_mfg_con_rvs->validate_hu(
+        EXPORTING
+          is_mfg_con_rvs_static_data = ls_mfg_con_rvs_static_data
+        CHANGING
+          cs_mfg_con_rvs_chg_data    = ls_mfg_con_rvs_chg_data
+      ).
+
+      lo_rf_mfg_con_rvs->wt_check_hu(
+        EXPORTING
+          is_mfg_con_rvs_static_data = ls_mfg_con_rvs_static_data
+        CHANGING
+          cs_mfg_con_rvs_chg_data    = ls_mfg_con_rvs_chg_data
+      ).
+
+      DATA: lv_attr1          TYPE syst_msgv.
+
+      " Blocked HU can't be used
+      IF  ls_mfg_con_rvs_chg_data-guid_hu IS NOT INITIAL
+      AND lo_rf_mfg_con_rvs->is_hu_blocked(
+        EXPORTING
+          is_mfg_con_rvs_static_data = ls_mfg_con_rvs_static_data
+        CHANGING
+          cs_mfg_con_rvs_chg_data    = ls_mfg_con_rvs_chg_data
+             ) = abap_true.
+        WRITE ls_mfg_con_rvs_chg_data-huident TO lv_attr1.
+        /scwm/cx_rf_mfg_con=>raise_exception(
+          EXPORTING
+            is_exception_type   = /scwm/cx_rf_mfg_con=>hu_blocked
+            iv_attr1            = lv_attr1
+        ).
+      ENDIF.
+
+      lo_rf_mfg_con_rvs->propose_pr_ba(
+        EXPORTING
+          is_mfg_con_rvs_static_data = ls_mfg_con_rvs_static_data
+        CHANGING
+          cs_mfg_con_rvs_chg_data    = ls_mfg_con_rvs_chg_data
+      ).
+
+      ls_mfg_con_rvs_chg_data-mat_proposed = abap_false.
+      ls_mfg_con_rvs_screen_data-matnr_ean = is_item-matnr.
+
+      IF ls_mfg_con_rvs_chg_data-mat_proposed = abap_true.
+        " In case the product was proposed, it's not necessary to
+        " validate it. Therefore the screen fields can be filled
+        " directly.
+
+        ls_mfg_con_rvs_screen_data-matnr_ean   = ls_mfg_con_rvs_chg_data-mat_global-matnr.
+        ls_mfg_con_rvs_screen_data-maktx       = ls_mfg_con_rvs_chg_data-mat_global-maktx.
+
+        " After the first call, all subsequent calls can only
+        " originate from direct user input. Therefore they need
+        " to be handled differently.
+        ls_mfg_con_rvs_chg_data-mat_proposed = abap_false.
+
+      ELSE.
+        " In case the product was not proposed, it might originate from
+        " an EAN 128 bar code.
+
+        IF ls_mfg_con_rvs_screen_data-matnr_ean IS INITIAL.
+          CLEAR: ls_mfg_con_rvs_chg_data-mat_global, ls_mfg_con_rvs_screen_data-maktx.
+        ELSEIF ls_mfg_con_rvs_chg_data-mat_read_from_ean128 = abap_false.
+
+          " If the product does not originate from an EAN 128 bar code, the input
+          " within the product field might be a bar code itself.
+
+          /scwm/cl_rf_mfg=>get_ean128_data_for_product(
+            EXPORTING
+              iv_barcode = ls_mfg_con_rvs_screen_data-matnr_ean
+            IMPORTING
+              es_ean128_data = ls_ean128
+          ).
+
+          WRITE ls_ean128-matnr TO ls_mfg_con_rvs_chg_data-mat_global-matnr.
+
+          IF ls_ean128-charg IS NOT INITIAL.
+            WRITE ls_ean128-charg TO ls_mfg_con_rvs_chg_data-batch-charg.
+            ls_mfg_con_rvs_chg_data-batch_read_from_ean128  = abap_true.
+          ELSE.
+            ls_mfg_con_rvs_chg_data-batch_read_from_ean128  = abap_false.
+          ENDIF.
+        ENDIF.
+
+        " After the first call, all subsequent calls can only
+        " originate from direct user input. Therefore they need
+        " to be handled differently.
+        ls_mfg_con_rvs_chg_data-mat_read_from_ean128 = abap_false.
+
+        lo_rf_mfg_con_rvs->validate_product(
+          EXPORTING
+            is_mfg_con_rvs_static_data = ls_mfg_con_rvs_static_data
+          CHANGING
+            cs_mfg_con_rvs_chg_data    = ls_mfg_con_rvs_chg_data
+        ).
+
+        lo_rf_mfg_con_rvs->wt_check_product(
+          is_mfg_con_rvs_static_data = ls_mfg_con_rvs_static_data
+          is_mfg_con_rvs_chg_data    = ls_mfg_con_rvs_chg_data
+        ).
+
+        ls_mfg_con_rvs_screen_data-maktx = ls_mfg_con_rvs_chg_data-mat_global-maktx.
+
+      ENDIF.
+
+      IF ls_mfg_con_rvs_chg_data-mat_global-batch_req = abap_true.
+        " Batch input
+        IF ls_mfg_con_rvs_chg_data-batch_read_from_ean128 = abap_false.
+          ls_mfg_con_rvs_chg_data-batch-charg = is_item-charg.
+        ENDIF.
+
+        ls_mfg_con_rvs_chg_data-batch_read_from_ean128 = abap_false.
+
+        lo_rf_mfg_con_rvs->validate_batch(
+          EXPORTING
+            is_mfg_con_rvs_static_data  = ls_mfg_con_rvs_static_data
+          CHANGING
+            cs_mfg_con_rvs_chg_data     = ls_mfg_con_rvs_chg_data
+        ).
+
+        ls_mfg_con_rvs_screen_data-batch  = ls_mfg_con_rvs_chg_data-batch-charg.
+        ls_mfg_con_rvs_screen_data-brestr = ls_mfg_con_rvs_chg_data-batch-brestr.
+
+        lo_rf_mfg_con_rvs->wt_check_batch(
+         is_mfg_con_rvs_static_data  = ls_mfg_con_rvs_static_data
+         is_mfg_con_rvs_chg_data     = ls_mfg_con_rvs_chg_data
+        ).
+
+      ENDIF.
+
+      lo_rf_mfg_con_rvs->mv_guid_stock = is_item-guid_stock.
+      lo_rf_mfg_con_rvs->get_unique_stock(
+        EXPORTING
+          is_mfg_con_rvs_static_data = ls_mfg_con_rvs_static_data
+          iv_serid = is_item-serid
+          iv_guid_stock = is_item-guid_stock
+        CHANGING
+          cs_mfg_con_rvs_chg_data    = ls_mfg_con_rvs_chg_data
+      ).
+
+      IF ls_mfg_con_rvs_chg_data-vfdat IS NOT INITIAL.
+        WRITE ls_mfg_con_rvs_chg_data-vfdat TO ls_mfg_con_rvs_screen_data-sled.
+      ENDIF.
+
+      lo_rf_mfg_con_rvs->prepare_reversal(
+        EXPORTING
+          iv_check_wts = abap_true
+        CHANGING
+          cs_mfg_con_rvs_static_data = ls_mfg_con_rvs_static_data
+          cs_mfg_con_rvs_chg_data    = ls_mfg_con_rvs_chg_data
+      ).
+
+
+      ls_mfg_con_rvs_chg_data-qty_proposed = abap_false.
+
+      lo_rf_mfg_con_rvs->propose_qty(
+        EXPORTING
+          is_mfg_con_rvs_static_data = ls_mfg_con_rvs_static_data
+        CHANGING
+          cs_mfg_con_rvs_chg_data    = ls_mfg_con_rvs_chg_data
+      ).
+
+      ls_mfg_con_rvs_screen_data-consumed_qty = ls_mfg_con_rvs_chg_data-consumed_qty.
+      ls_mfg_con_rvs_screen_data-consumed_uom = ls_mfg_con_rvs_chg_data-reverse_uom.
+      ls_mfg_con_rvs_screen_data-reverse_uom  = ls_mfg_con_rvs_chg_data-reverse_uom.
+
+      ls_mfg_con_rvs_chg_data-reverse_qty = ls_mfg_con_rvs_chg_data-consumed_qty.
+      ls_mfg_con_rvs_chg_data-reverse_qty = is_item-qty .
+      ls_mfg_con_rvs_chg_data-reverse_uom = is_item-uom .
+
+      DATA lt_serid TYPE /scwm/tt_serid.
+      DATA ls_serid TYPE /scwm/s_serid.
+
+      IF is_item-serid IS NOT INITIAL.
+        ls_serid-serid = is_item-serid.
+        INSERT ls_serid INTO TABLE lt_serid.
+      ENDIF.
+
+      lo_rf_mfg_con_rvs->reverse_consumption(
+        EXPORTING
+          is_mfg_con_rvs_static_data = ls_mfg_con_rvs_static_data
+          it_serid = lt_serid
+        CHANGING
+          cs_mfg_con_rvs_chg_data    = ls_mfg_con_rvs_chg_data
+       ).
+
+    CATCH /scwm/cx_rf_mfg_con INTO lx_mfg_con_error.
+      MESSAGE lx_mfg_con_error TYPE wmegc_severity_err.
+  ENDTRY.
+
+ENDFORM.

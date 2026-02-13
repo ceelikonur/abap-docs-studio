@@ -1,0 +1,113 @@
+REPORT zmfg_production_gr_reversal.
+
+
+CONSTANTS:
+  gc_mfg_rcv_wc_type  TYPE /scwm/de_workst_trtyp  VALUE '1'.
+
+PARAMETERS p_lgnum TYPE /scwm/s_rf_mfg_rcv_wc-lgnum DEFAULT '4210'.
+PARAMETERS p_work  TYPE /scwm/s_rf_mfg_rcv_wc-workstation DEFAULT 'YPW1'.
+PARAMETERS p_huid  TYPE /scwm/s_rf_mfg_rcv_rvs_hu_sel-rfhu.
+
+START-OF-SELECTION.
+  BREAK-POINT.
+  PERFORM gr_from_prod_reversal.
+
+FORM gr_from_prod_reversal.
+  DATA: lo_rf_mfg_rcv_rvs TYPE REF TO /scwm/cl_rf_mfg_rcv_rvs.
+
+  DATA ls_mfg_rcv_rvs_hu_sel TYPE /scwm/s_rf_mfg_rcv_rvs_hu_sel.
+  DATA ls_mfg_rcv_rvs_stock  TYPE /scwm/s_rf_mfg_rcv_rvs_stock .
+
+  lo_rf_mfg_rcv_rvs = /scwm/cl_rf_mfg_rcv_rvs=>get_instance( ).
+
+  /scwm/cl_tm=>set_lgnum( p_lgnum ).
+  /scwm/cl_tm=>cleanup( ).
+  /scwm/cl_rf_bll_srvc=>set_flg_dequeue_all( ).
+
+  ls_mfg_rcv_rvs_hu_sel-lgnum = p_lgnum.
+  ls_mfg_rcv_rvs_hu_sel-rfhu  = p_huid.
+
+  TRY.
+      lo_rf_mfg_rcv_rvs->get_mfg_rcv_rvs_stock_qry(
+        EXPORTING is_mfg_rcv_rvs_hu_sel = ls_mfg_rcv_rvs_hu_sel
+        IMPORTING es_mfg_rcv_rvs_stock  = ls_mfg_rcv_rvs_stock ).
+    CATCH /scwm/cx_core.
+      MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+              WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+  ENDTRY.
+
+  ls_mfg_rcv_rvs_stock-exc_code = 'DIFR'.
+
+  " call method to set quantities to internal longer quantities upon roundtrip
+  " in case quantity has not been changed
+  lo_rf_mfg_rcv_rvs->set_qty_pai( CHANGING cs_mfg_rcv_rvs_stock = ls_mfg_rcv_rvs_stock ).
+
+  DATA lv_xqty_rem       TYPE abap_bool VALUE 'X'.
+
+  TRY.
+      lo_rf_mfg_rcv_rvs->calculate_qty(
+        EXPORTING iv_xqty_rem          = lv_xqty_rem
+        CHANGING  cs_mfg_rcv_rvs_stock = ls_mfg_rcv_rvs_stock ).
+    CATCH /scwm/cx_core.
+*        /scwm/cl_rf_bll_srvc=>set_field( lv_field_60 ).
+      MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+              WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+  ENDTRY.
+
+  BREAK-POINT.
+  DATA ls_syst           TYPE syst.
+  DATA lv_huident        TYPE /scwm/de_huident.
+
+  TRY.
+      lo_rf_mfg_rcv_rvs->save( ls_mfg_rcv_rvs_stock ).
+
+      ">> delete serial
+      PERFORM delete_serial USING p_huid.
+      "<< delete serial
+    CATCH /scwm/cx_core.
+      MOVE-CORRESPONDING syst TO ls_syst.
+      TRY.
+          "try to relock HU and check if stock is still unchanged
+          lo_rf_mfg_rcv_rvs->get_mfg_rcv_rvs_stock_qry_redo(
+                                 EXPORTING iv_xqty_rem          = lv_xqty_rem
+                                 CHANGING  cs_mfg_rcv_rvs_stock = ls_mfg_rcv_rvs_stock ).
+        CATCH /scwm/cx_core.
+          "issue message with method in order to allow to issue
+          "message on another screen (previous screen in case HU
+          "item is no longer the same
+          "but do not use real message from backend during reversal
+          "because user needs to be notified that he/she has to
+          "re-try from the beginning in this case
+          lv_huident = ls_mfg_rcv_rvs_stock-rfhu.
+          MESSAGE e271(/scwm/rf_en) WITH lv_huident.
+
+      ENDTRY.
+      "issue message on same screen if new query did not fail and we
+      "can stay on the HU item proposed
+      MESSAGE ID ls_syst-msgid TYPE ls_syst-msgty NUMBER ls_syst-msgno
+              WITH ls_syst-msgv1 ls_syst-msgv2 ls_syst-msgv3 ls_syst-msgv4.
+  ENDTRY.
+ENDFORM.
+FORM delete_serial USING iv_huid.
+  DATA lv_huid TYPE /scwm/dlv_seri-huno.
+
+  lv_huid = iv_huid.
+  CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+    EXPORTING
+      input  = lv_huid
+    IMPORTING
+      output = lv_huid.
+
+
+  DATA lv_serid TYPE /scwm/dlv_seri-serid.
+  SELECT SINGLE serid FROM /scwm/dlv_seri
+    INTO lv_serid
+    WHERE huno = lv_huid.
+
+  IF sy-subrc EQ 0.
+    DELETE FROM /scwm/dlv_seri WHERE serid = lv_serid.
+    DELETE FROM /scwm/seri WHERE serid = lv_serid.
+  ENDIF.
+
+
+ENDFORM.

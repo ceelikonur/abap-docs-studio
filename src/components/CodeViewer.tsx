@@ -32,6 +32,8 @@ interface CodeViewerProps {
 
 export function CodeViewer({ code, fileName }: CodeViewerProps) {
   const codeRef = useRef<HTMLElement>(null);
+  // All uploaded source files in this app are ABAP code — always use ABAP highlighting
+  const languageClass = "language-abap";
 
   useEffect(() => {
     if (codeRef.current) {
@@ -47,7 +49,7 @@ export function CodeViewer({ code, fileName }: CodeViewerProps) {
       </div>
       <ScrollArea className="flex-1">
         <pre className="p-4 text-sm leading-relaxed">
-          <code ref={codeRef} className="language-abap">
+          <code ref={codeRef} className={languageClass}>
             {code}
           </code>
         </pre>

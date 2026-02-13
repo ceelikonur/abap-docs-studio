@@ -1,0 +1,134 @@
+REPORT zmfg_production1_gr.
+
+
+CONSTANTS:
+  gc_mfg_rcv_wc_type  TYPE /scwm/de_workst_trtyp  VALUE '1'.
+
+PARAMETERS p_lgnum TYPE /scwm/s_rf_mfg_rcv_wc-lgnum DEFAULT '4210'.
+PARAMETERS p_work  TYPE /scwm/s_rf_mfg_rcv_wc-workstation DEFAULT 'YPW1'.
+PARAMETERS p_prord TYPE /scwm/de_rf_prod_order .
+PARAMETERS p_mat TYPE mara-matnr DEFAULT '9'.
+
+START-OF-SELECTION.
+  BREAK-POINT .
+  PERFORM gr_from_prod.
+
+FORM gr_from_prod.
+  DATA lo_rf_mfg_rcv         TYPE REF TO zewm_cl_rf_mfg_rcv.
+  DATA ls_mfg_rcv_wc         TYPE  /scwm/s_rf_mfg_rcv_wc.
+  DATA ls_mfg_rcv_ppo_sel    TYPE  /scwm/s_rf_mfg_rcv_ppo_sel         .
+  DATA ls_mfg_rcv_ppoi_sel   TYPE  /scwm/s_rf_mfg_rcv_ppoi_sel        .
+  DATA lt_mfg_rcv_ppoi_sel_l TYPE  /scwm/tt_rf_mfg_rcv_ppoi_sel_l     .
+  DATA ls_mfg_rcv_hu         TYPE /scwm/s_rf_mfg_rcv_hu.
+  DATA ls_mfg_rcv_hu_lcl     TYPE /scwm/s_rf_mfg_rcv_hu.
+  DATA ls_mfg_rcv_chg_pmat   TYPE  /scwm/s_rf_mfg_rcv_chg_pmat .
+
+  /scwm/cl_tm=>cleanup( ).
+
+  lo_rf_mfg_rcv = zewm_cl_rf_mfg_rcv=>get_instance( ).
+
+  ls_mfg_rcv_wc-workstation = p_work.
+  ls_mfg_rcv_wc-lgnum = p_lgnum.
+
+  "check entered workcenter
+  TRY.
+      lo_rf_mfg_rcv->get_wc( EXPORTING iv_wc_type    = gc_mfg_rcv_wc_type
+                             CHANGING  cs_mfg_rcv_wc = ls_mfg_rcv_wc ).
+    CATCH /scwm/cx_core.
+      MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+              WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+  ENDTRY.
+
+  /scwm/cl_tm=>set_lgnum( p_lgnum ).
+
+  ls_mfg_rcv_ppo_sel-lgnum = p_lgnum.
+  ls_mfg_rcv_ppo_sel-prod_order = p_prord.
+
+  TRY.
+      lo_rf_mfg_rcv->query_egr_by_ppo(
+                 EXPORTING is_mfg_rcv_ppo_sel    = ls_mfg_rcv_ppo_sel
+                 IMPORTING es_mfg_rcv_ppoi_sel   = ls_mfg_rcv_ppoi_sel
+                           et_mfg_rcv_ppoi_sel_l = lt_mfg_rcv_ppoi_sel_l ).
+
+    CATCH /scdl/cx_delivery ##NO_HANDLER.
+  ENDTRY.
+  " /SCWM/CL_RF_MFG_RCV===========CM008
+  ls_mfg_rcv_hu_lcl = ls_mfg_rcv_hu.
+
+  ls_mfg_rcv_ppoi_sel-selno = '001'.
+
+  TRY.
+      lo_rf_mfg_rcv->get_mfg_rcv_hu_data(
+        EXPORTING
+          is_mfg_rcv_wc         = ls_mfg_rcv_wc
+          is_mfg_rcv_ppoi_sel   = ls_mfg_rcv_ppoi_sel
+          it_mfg_rcv_ppoi_sel_l = lt_mfg_rcv_ppoi_sel_l
+        IMPORTING
+          es_mfg_rcv_hu         = ls_mfg_rcv_hu_lcl ).
+
+    CATCH /scwm/cx_core.
+*      IF NOT cs_mfg_rcv_ppoi_sel-matnr_ean_entry IS INITIAL.
+*        /scwm/cl_rf_bll_srvc=>set_screlm_invisible_off( gc_f_mfg_rcv_ppoi_sel_batch_e ).
+*      ENDIF.
+      MESSAGE ID sy-msgid TYPE sy-msgty NUMBER sy-msgno
+              WITH sy-msgv1 sy-msgv2 sy-msgv3 sy-msgv4.
+  ENDTRY.
+
+  ls_mfg_rcv_hu = ls_mfg_rcv_hu_lcl.
+
+  lo_rf_mfg_rcv->get_chg_pmat_data(
+    EXPORTING is_mfg_rcv_hu       = ls_mfg_rcv_hu
+              is_mfg_rcv_wc       = ls_mfg_rcv_wc
+     CHANGING cs_mfg_rcv_chg_pmat = ls_mfg_rcv_chg_pmat ).
+
+  "Adopt values to be changed from filled entry fields
+*  IF ls_mfg_rcv_chg_pmat-pmat_entry IS NOT INITIAL.
+  ls_mfg_rcv_hu-pmat = p_mat.
+*  ENDIF.
+*  IF ls_mfg_rcv_chg_pmat-hutyp_entry IS NOT INITIAL.
+  ls_mfg_rcv_hu-hutyp = 'E1'.
+*  ENDIF.
+
+  "--set RF parameters for printing
+  CALL FUNCTION '/SCWM/RF_PRINT_GLOBAL_DATA'
+    EXPORTING
+      iv_workcenter = ls_mfg_rcv_wc-workstation.
+
+  "--check entered data
+  TRY.
+      lo_rf_mfg_rcv->check_data( EXPORTING is_mfg_rcv_hu = ls_mfg_rcv_hu ).
+    CATCH /scwm/cx_core.
+      MESSAGE ID sy-msgid
+            TYPE   wmegc_severity_err "always error, since RF framework ignores warnings
+            NUMBER sy-msgno
+            WITH   sy-msgv1
+                   sy-msgv2
+                   sy-msgv3
+                   sy-msgv4.
+  ENDTRY.
+
+  DATA lo_message    TYPE REF TO /scwm/if_api_message.
+  DATA ls_message    TYPE /scwm/if_api_message=>ys_message.
+
+  "--create receipt from production
+  TRY.
+      lo_rf_mfg_rcv->save( EXPORTING is_mfg_rcv_wc = ls_mfg_rcv_wc
+                           IMPORTING eo_message    = lo_message
+                           CHANGING  cs_mfg_rcv_hu = ls_mfg_rcv_hu ).
+    CATCH /scwm/cx_core.
+      ls_message = lo_message->get_most_important_message( ).
+
+      "LS_MESSAGE has to be non-initial at this point; if not, the API
+      "did not correctly set the most important message and must be adapted
+      MESSAGE ID     ls_message-msg-msgid
+              TYPE   wmegc_severity_err "always error, since RF framework ignores warnings
+              NUMBER ls_message-msg-msgno
+              WITH   ls_message-msg-msgv1
+                     ls_message-msg-msgv2
+                     ls_message-msg-msgv3
+                     ls_message-msg-msgv4.
+  ENDTRY.
+
+  WRITE: / ls_mfg_rcv_hu-rflasthu, 'nolu tasima birimi mal girisi yapildi'.
+
+ENDFORM.

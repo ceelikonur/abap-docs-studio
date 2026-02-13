@@ -1,0 +1,459 @@
+REPORT zmfg_production_gi.
+
+
+CONSTANTS:
+  gc_mfg_rcv_wc_type  TYPE /scwm/de_workst_trtyp  VALUE '1'.
+
+PARAMETERS p_lgnum TYPE /scwm/s_rf_mfg_rcv_wc-lgnum DEFAULT '4210'.
+*PARAMETERS p_work  TYPE /scwm/s_rf_mfg_rcv_wc-workstation DEFAULT 'YPW1'.
+PARAMETERS p_prord TYPE /scwm/de_rf_prod_order .
+PARAMETERS p_mat TYPE mara-matnr DEFAULT '9'.
+
+PARAMETERS p_huid  TYPE /scwm/s_rf_mfg_rcv_rvs_hu_sel-rfhu .
+PARAMETERS p_matnr TYPE /scwm/de_matnr.
+PARAMETERS p_charg TYPE /scwm/de_charg.
+PARAMETERS p_serid TYPE /scwm/de_serid .
+PARAMETERS p_qty TYPE /scwm/s_rf_mfg_con_chg_data-consumed_qty .
+PARAMETERS p_uom TYPE /scwm/s_rf_mfg_con_chg_data-consumed_uom .
+
+START-OF-SELECTION.
+  BREAK-POINT.
+  PERFORM gi_for_prod2.
+
+FORM gi_for_prod2.
+  DATA ls_mfg_con_chg_data  TYPE /scwm/s_rf_mfg_con_chg_data.
+  DATA ls_mfg_con_static_data  TYPE /scwm/s_rf_mfg_con_static_data.
+  DATA ls_mfg_con_screen_data  TYPE /scwm/s_rf_mfg_con_screen_data.
+
+  DATA:
+    ls_headers       TYPE /scwm/dlv_header_out_prd_str,
+    lo_rf_mfg_con    TYPE REF TO zewm_cl_rf_mfg_con,
+    lx_mfg_con_error TYPE REF TO /scwm/cx_rf_mfg_con.
+
+  /scwm/cl_tm=>set_lgnum( p_lgnum ).
+  /scwm/cl_tm=>cleanup( ).
+
+  ls_mfg_con_static_data-lgnum      = p_lgnum.
+  ls_mfg_con_screen_data-prod_order = p_prord.
+
+  lo_rf_mfg_con = zewm_cl_rf_mfg_con=>get_instance( ).
+
+  TRY.
+      ls_mfg_con_static_data-mo_docno = ls_mfg_con_screen_data-prod_order.
+
+      lo_rf_mfg_con->check_mo(
+          EXPORTING
+            iv_prod_order           = ls_mfg_con_static_data-mo_docno
+          CHANGING
+            cs_mfg_con_static_data  = ls_mfg_con_static_data
+      ).
+
+      lo_rf_mfg_con->read_pmr(
+        EXPORTING
+          iv_lgnum   = ls_mfg_con_static_data-lgnum
+          iv_docid   = ls_mfg_con_static_data-pwr_docid
+        IMPORTING
+          es_headers = ls_headers
+             ).
+
+      IF ls_headers-sapext-/scwm/itemid_main_product IS NOT INITIAL.
+        ls_mfg_con_static_data-main_product          = ls_headers-main_item-product-productno.
+        ls_mfg_con_static_data-main_product_descr    = ls_headers-main_item-product-product_text.
+      ELSE.
+        ls_mfg_con_static_data-main_product_descr    = ls_headers-sapext-/scwm/production_info.
+        CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+          EXPORTING
+            input  = ls_mfg_con_static_data-main_product_descr
+          IMPORTING
+            output = ls_mfg_con_static_data-main_product_descr.
+      ENDIF.
+
+      ls_mfg_con_chg_data-hu_or_bin = p_huid.
+      DATA lv_matid TYPE mara-scm_matid_guid16.
+      SELECT SINGLE scm_matid_guid16 FROM mara INTO lv_matid
+        WHERE matnr = p_matnr.
+
+      ls_mfg_con_chg_data-mat_global-matid = lv_matid.
+      ls_mfg_con_chg_data-mat_global-matnr = p_matnr.
+
+      lo_rf_mfg_con->validate_hu_or_bin(
+        EXPORTING
+          is_mfg_con_static_data = ls_mfg_con_static_data
+        CHANGING
+          cs_mfg_con_chg_data    = ls_mfg_con_chg_data
+      ).
+
+      IF 2 = 2 .
+        DATA lt_stockmon     TYPE  /scwm/tt_stock_mon .
+        DATA lt_serials      TYPE  /scwm/tt_serid_mon_int.
+
+        PERFORM get_ewm_stock
+          USING
+            p_lgnum
+            p_huid
+            p_matnr
+            p_charg
+            p_serid
+          CHANGING
+            lt_stockmon
+            lt_serials .
+
+        IF lt_stockmon[] IS INITIAL.
+          /scwm/cx_rf_mfg_con=>raise_exception( /scwm/cx_rf_mfg_con=>batch_not_found_within_pmr ).
+        ENDIF.
+
+*        IF lines( lt_stockmon ) > 1.
+*          /scwm/cx_rf_mfg_con=>raise_exception( /scwm/cx_rf_mfg_con=>multiple_stock_items ).
+*        ENDIF.
+
+        LOOP AT lt_stockmon INTO DATA(ls_stockmon).
+*  <ls_mfg_item_cons>-guid_gmbin       = cs_mfg_con_chg_data-guid_loc.
+*  <ls_mfg_item_cons>-guid_hu          = cs_mfg_con_chg_data-guid_hu.
+*  <ls_mfg_item_cons>-batchid          = cs_mfg_con_chg_data-batch-batchid.
+*  <ls_mfg_item_cons>-qty              = cs_mfg_con_chg_data-consumed_qty.
+*  <ls_mfg_item_cons>-uom              = cs_mfg_con_chg_data-consumed_uom.
+*  <ls_mfg_item_cons>-stock_category   = cs_mfg_con_chg_data-stock_category.
+*  <ls_mfg_item_cons>-stock_owner      = cs_mfg_con_chg_data-stock_owner.
+*  <ls_mfg_item_cons>-stock_owner_role = cs_mfg_con_chg_data-stock_owner_role.
+*  <ls_mfg_item_cons>-guid_stock       = cs_mfg_con_chg_data-guid_stock.
+*  <ls_mfg_item_cons>-guid_parent      = cs_mfg_con_chg_data-guid_parent.
+
+          ls_mfg_con_chg_data-batch-batchid    = ls_stockmon-batchid           .
+          ls_mfg_con_chg_data-consumed_qty     = p_qty                         .
+          ls_mfg_con_chg_data-consumed_uom     = p_uom                         .
+          ls_mfg_con_chg_data-stock_category   = ls_stockmon-cat               .
+          ls_mfg_con_chg_data-stock_owner      = ls_stockmon-owner             .
+          ls_mfg_con_chg_data-stock_owner_role = ls_stockmon-owner_role        .
+          ls_mfg_con_chg_data-guid_stock       = ls_stockmon-guid_stock        .
+          ls_mfg_con_chg_data-guid_parent      = ls_stockmon-guid_parent       .
+          ls_mfg_con_static_data-pwr_itemid    = ls_stockmon-qitmid.
+          EXIT.
+        ENDLOOP.
+      ENDIF.
+
+      DATA lt_serid TYPE /scwm/tt_serid.
+      DATA ls_serid TYPE /scwm/s_serid.
+
+      IF p_serid IS NOT INITIAL.
+        ls_serid-serid = p_serid.
+        INSERT ls_serid INTO TABLE lt_serid.
+      ENDIF.
+
+      lo_rf_mfg_con->post_consumption(
+        EXPORTING
+          is_mfg_con_static_data = ls_mfg_con_static_data
+          it_serid = lt_serid
+        CHANGING
+          cs_mfg_con_chg_data    = ls_mfg_con_chg_data
+      ).
+
+    CATCH /scwm/cx_rf_mfg_con INTO lx_mfg_con_error.
+      MESSAGE lx_mfg_con_error TYPE wmegc_severity_err.
+  ENDTRY.
+  BREAK-POINT.
+
+ENDFORM.
+FORM get_ewm_stock USING iv_lgnum
+                         iv_huident
+                         iv_matnr
+                         iv_charg
+                         iv_serid
+                CHANGING zct_052 TYPE /scwm/tt_stock_mon
+                         ct_serials TYPE /scwm/tt_serid_mon_int..
+
+  " stok miktar
+  DATA: lo_stock        TYPE REF TO /scwm/cl_mon_stock,
+        lt_matnr_r      TYPE /scwm/tt_matnr_r,
+        lt_cat          TYPE /scwm/tt_cat_r,
+        lt_owner        TYPE /scwm/tt_owner_r,
+        lt_entitled_r   TYPE /scwm/tt_entitled_r,
+        lt_charg_r      TYPE /scwm/tt_charg_r,
+        lt_lgtyp_r      TYPE /scwm/tt_lgtyp_r,
+        lt_lgber_r      TYPE /scwm/tt_lgber_r,
+        lt_lgpla_r      TYPE /scwm/tt_lgpla_r,
+        lt_lptyp_r      TYPE /scwm/tt_lptyp_r,
+        lt_aisle_r      TYPE /scwm/tt_aisle_r,
+        lt_stack_r      TYPE /scwm/tt_stack_r,
+        lt_level_r      TYPE /scwm/tt_level_r,
+        lt_binsc_r      TYPE /scwm/tt_binsc_r,
+        lt_depth_r      TYPE /scwm/tt_depth_r,
+        lt_psa_r        TYPE /scwm/tt_psa_r,
+        lt_rsrc_r       TYPE /scwm/tt_rsrc_r,
+        lt_serid_r      TYPE /scwm/tt_serid_range,
+        lt_tu_num_ext_r TYPE /scwm/tt_sel_tu_num_ext,
+        lt_tsp_r        TYPE /scwm/tt_sel_tsp,
+        ls_read_options TYPE /scwm/s_read_opt_stock,
+        lv_returncode   TYPE xfeld,
+        lt_stock_mon    TYPE /scwm/tt_inc_out_mon,
+        et_phy_stock    TYPE /scwm/tt_stock_mon,
+        lt_huident_r    TYPE /scwm/tt_huident_r.
+
+  APPEND VALUE #(
+      sign = 'I'
+      option = 'EQ'
+      low = iv_huident
+                 ) TO lt_huident_r.
+
+  APPEND VALUE #(
+      sign = 'I'
+      option = 'EQ'
+      low = iv_matnr
+               ) TO lt_matnr_r.
+
+
+  APPEND VALUE #(
+      sign = 'I'
+      option = 'EQ'
+      low = iv_charg
+                 ) TO lt_charg_r.
+
+
+  IF iv_serid IS NOT INITIAL.
+    APPEND VALUE #(
+        sign = 'I'
+        option = 'EQ'
+        low = iv_serid
+                   ) TO lt_serid_r.
+  ENDIF.
+
+  CREATE OBJECT lo_stock
+    EXPORTING
+      iv_lgnum        = iv_lgnum
+      is_read_options = ls_read_options.
+
+  lo_stock->get_physical_stock(
+        EXPORTING
+          it_huident_r     = lt_huident_r
+          it_matnr_r       = lt_matnr_r
+          it_charg_r       = lt_charg_r
+          it_serid_r       = lt_serid_r
+        IMPORTING
+          et_stock_mon     = zct_052
+          ev_error         = lv_returncode
+  ).
+
+  LOOP AT zct_052 ASSIGNING FIELD-SYMBOL(<fs_stock>).
+    PERFORM get_serials
+       USING iv_lgnum
+             <fs_stock>
+    CHANGING ct_serials.
+  ENDLOOP.
+
+ENDFORM.
+FORM get_serials
+     USING iv_lgnum TYPE /scwm/lgnum
+           is_phy_stock TYPE /scwm/s_stock_mon
+  CHANGING ct_serials TYPE  /scwm/tt_serid_mon_int.
+
+  DATA: lt_guid_stock     TYPE /lime/t_query_guid,
+        lt_guid_parent    TYPE /lime/t_query_guid,
+        lt_data_parent    TYPE /scwm/tt_serid_mon_imp,
+        ls_data_parent    LIKE LINE OF lt_data_parent,
+        lv_returncode_ser TYPE xfeld.
+
+  CLEAR ct_serials[].
+
+  MOVE-CORRESPONDING is_phy_stock TO ls_data_parent.
+  APPEND ls_data_parent TO lt_data_parent.
+
+* fill tables with guid_stock and guid_parent for
+* following function module
+  LOOP AT lt_data_parent INTO ls_data_parent.
+    IF ls_data_parent-guid_stock IS NOT INITIAL.
+      APPEND ls_data_parent-guid_stock TO lt_guid_stock.
+    ENDIF.
+    IF ls_data_parent-guid_parent IS NOT INITIAL.
+      APPEND ls_data_parent-guid_parent TO lt_guid_parent.
+    ENDIF.
+  ENDLOOP.
+
+* lt_guid_stock and lt_guid_parent should be filled for
+* a reasonable query
+  CHECK lt_guid_stock  IS NOT INITIAL AND
+        lt_guid_parent IS NOT INITIAL.
+
+  CALL FUNCTION '/SCWM/WIP_GET_SERID'
+    EXPORTING
+      iv_lgnum       = iv_lgnum                " Lagernummer/Lagerkomplex
+      it_guid_stock  = lt_guid_stock          " GUID_STOCK
+      it_guid_parent = lt_guid_parent         " GUDI_PARENT
+      it_data_parent = lt_data_parent         " Import-Tabellentyp für Serialnummern im Monitor
+    IMPORTING
+      et_data        = ct_serials                " Serialnummertabtyp Monitor
+      ev_returncode  = lv_returncode_ser.     " Feld zum Ankreuzen
+
+ENDFORM.
+FORM gi_for_prod.
+  DATA ls_mfg_con_chg_data  TYPE /scwm/s_rf_mfg_con_chg_data.
+  DATA ls_mfg_con_static_data  TYPE /scwm/s_rf_mfg_con_static_data.
+  DATA ls_mfg_con_screen_data  TYPE /scwm/s_rf_mfg_con_screen_data.
+
+  DATA:
+    ls_headers       TYPE /scwm/dlv_header_out_prd_str,
+    lo_rf_mfg_con    TYPE REF TO zewm_cl_rf_mfg_con,
+    lx_mfg_con_error TYPE REF TO /scwm/cx_rf_mfg_con.
+
+  /scwm/cl_tm=>set_lgnum( p_lgnum ).
+  /scwm/cl_tm=>cleanup( ).
+
+  ls_mfg_con_static_data-lgnum      = p_lgnum.
+  ls_mfg_con_screen_data-prod_order = p_prord.
+
+  lo_rf_mfg_con = zewm_cl_rf_mfg_con=>get_instance( ).
+
+  TRY.
+      ls_mfg_con_static_data-mo_docno = ls_mfg_con_screen_data-prod_order.
+
+      lo_rf_mfg_con->check_mo(
+          EXPORTING
+            iv_prod_order           = ls_mfg_con_static_data-mo_docno
+          CHANGING
+            cs_mfg_con_static_data  = ls_mfg_con_static_data
+      ).
+
+      lo_rf_mfg_con->read_pmr(
+        EXPORTING
+          iv_lgnum   = ls_mfg_con_static_data-lgnum
+          iv_docid   = ls_mfg_con_static_data-pwr_docid
+        IMPORTING
+          es_headers = ls_headers
+             ).
+      " In case outcome of production order is not a product itself
+      " use production info instead
+      IF ls_headers-sapext-/scwm/itemid_main_product IS NOT INITIAL.
+        ls_mfg_con_static_data-main_product          = ls_headers-main_item-product-productno.
+        ls_mfg_con_static_data-main_product_descr    = ls_headers-main_item-product-product_text.
+      ELSE.
+        ls_mfg_con_static_data-main_product_descr    = ls_headers-sapext-/scwm/production_info.
+        CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+          EXPORTING
+            input  = ls_mfg_con_static_data-main_product_descr
+          IMPORTING
+            output = ls_mfg_con_static_data-main_product_descr.
+      ENDIF.
+
+      ls_mfg_con_chg_data-hu_or_bin = p_huid.
+      DATA lv_matid TYPE mara-scm_matid_guid16.
+      SELECT SINGLE scm_matid_guid16 FROM mara INTO lv_matid
+        WHERE matnr = p_matnr.
+
+      ls_mfg_con_chg_data-mat_global-matid = lv_matid.
+      ls_mfg_con_chg_data-mat_global-matnr = p_matnr.
+
+      lo_rf_mfg_con->validate_hu_or_bin(
+        EXPORTING
+          is_mfg_con_static_data = ls_mfg_con_static_data
+        CHANGING
+          cs_mfg_con_chg_data    = ls_mfg_con_chg_data
+      ).
+
+*      IF p_charg IS NOT INITIAL.
+*CALL METHOD lo_rf_mfg_con->get_list_batches_hu
+*  EXPORTING
+*    iv_matid   =
+**  IMPORTING
+**    et_batchid =
+*    .
+*
+*
+*        ls_mfg_con_chg_data-batch-matid = lv_matid.
+*        ls_mfg_con_chg_data-batch-charg = p_charg.
+**  TRY.
+*        CALL METHOD lo_rf_mfg_con->validate_batch
+*          EXPORTING
+*            is_mfg_con_static_data = ls_mfg_con_static_data
+*          CHANGING
+*            cs_mfg_con_chg_data    = ls_mfg_con_chg_data.
+**    CATCH /scwm/cx_rf_mfg_con.
+**  ENDTRY.
+*      ENDIF.
+      BREAK-POINT.
+      " No product is given, try to propose a product, batch and quantity
+      " based on the scanned HU / bin.
+      lo_rf_mfg_con->propose_pr_ba_qty(
+        EXPORTING
+          is_mfg_con_static_data = ls_mfg_con_static_data
+        CHANGING
+          cs_mfg_con_chg_data    = ls_mfg_con_chg_data
+      ).
+
+      lo_rf_mfg_con->propose_ba_qty(
+        EXPORTING
+          is_mfg_con_static_data = ls_mfg_con_static_data
+        CHANGING
+          cs_mfg_con_chg_data    = ls_mfg_con_chg_data
+      ).
+
+      lo_rf_mfg_con->get_unique_stock(
+        CHANGING
+          cs_mfg_con_static_data = ls_mfg_con_static_data
+          cs_mfg_con_chg_data    = ls_mfg_con_chg_data
+      ).
+
+      BREAK-POINT.
+      IF 1 = 1.
+        IF ls_mfg_con_chg_data-qty_proposed = abap_false.
+          lo_rf_mfg_con->propose_qty(
+            EXPORTING
+              is_mfg_con_static_data = ls_mfg_con_static_data
+            CHANGING
+              cs_mfg_con_chg_data    = ls_mfg_con_chg_data
+          ).
+
+          IF ls_mfg_con_chg_data-qty_proposed = abap_false.
+            ls_mfg_con_chg_data-consumed_uom = ls_mfg_con_chg_data-mat_global-meins.
+          ENDIF.
+        ENDIF.
+
+        lo_rf_mfg_con->convert_qty_to_pmr_uom(
+            CHANGING
+              cs_mfg_con_chg_data = ls_mfg_con_chg_data
+          ).
+
+        IF ls_mfg_con_chg_data-qty_proposed = abap_true.
+          IF ls_mfg_con_chg_data-consumed_qty > 0.
+            ls_mfg_con_screen_data-consumed_qty = ls_mfg_con_chg_data-consumed_qty.
+          ENDIF.
+        ENDIF.
+
+        ls_mfg_con_screen_data-consumed_uom = ls_mfg_con_chg_data-consumed_uom.
+        ls_mfg_con_chg_data-qty_proposed = abap_false.
+      ENDIF.
+
+      lo_rf_mfg_con->prepare_consumption(
+          CHANGING
+            cs_mfg_con_static_data = ls_mfg_con_static_data
+            cs_mfg_con_chg_data    = ls_mfg_con_chg_data
+        ).
+
+      ls_mfg_con_chg_data-remaining_qty = 0.
+      ls_mfg_con_chg_data-remaining_uom = ls_mfg_con_screen_data-consumed_uom.
+
+      lo_rf_mfg_con->calculate_consumed_qty(
+        CHANGING
+          cs_mfg_con_chg_data = ls_mfg_con_chg_data
+      ).
+
+      ls_mfg_con_chg_data-consumed_qty =   ls_mfg_con_chg_data-available_qty.
+      ls_mfg_con_chg_data-consumed_uom =   ls_mfg_con_chg_data-available_uom.
+
+      DATA lt_serid TYPE /scwm/tt_serid.
+      DATA ls_serid TYPE /scwm/s_serid.
+
+      ls_serid-serid = p_serid.
+      INSERT ls_serid INTO TABLE lt_serid.
+
+      lo_rf_mfg_con->post_consumption(
+        EXPORTING
+          is_mfg_con_static_data = ls_mfg_con_static_data
+          it_serid = lt_serid
+        CHANGING
+          cs_mfg_con_chg_data    = ls_mfg_con_chg_data
+      ).
+
+    CATCH /scwm/cx_rf_mfg_con INTO lx_mfg_con_error.
+      MESSAGE lx_mfg_con_error TYPE wmegc_severity_err.
+  ENDTRY.
+  BREAK-POINT.
+
+ENDFORM.
